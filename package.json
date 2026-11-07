@@ -10,7 +10,8 @@
   "dependencies": {
     "@xyflow/react": "^12.12.1",
     "c2pa-react-ai-disclaimer": "^0.2.0",
-    "c2pa-react-component": "^0.1.22",
+    "c2pa-react-component": "^0.1.23",
+    "c2pa-react-component-nouns-verbs": "^0.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

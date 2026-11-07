@@ -2,13 +2,15 @@ import React, {useState, useRef, useEffect} from 'react';
 import {FileIcon, Robot} from './Robot.jsx';
 import {Details} from './Details.jsx';
 import {HowItWorks} from './HowItWorks.jsx';
+import {Feedback} from './Feedback.jsx';
 import {VERDICTS, SAMPLES} from './verdicts.js';
+import {describeNounsAndVerbs} from 'c2pa-react-component-nouns-verbs';
 
 const MIN_CHOMP=1500;
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
-async function eat(file,signal){
- const body=new FormData();body.append('file',file);
+async function eat(file,sample,signal){
+ const body=new FormData();body.append('file',file);if(sample)body.append('sample','true');
  let res;
  try{res=await fetch('/api/eat',{method:'POST',body,signal});}
  catch(e){if(e.name==='AbortError')throw e;throw new Error('Plug-Fest Bot’s kitchen isn’t answering. Is the server running?');}
@@ -26,20 +28,21 @@ export function App(){
  const input=useRef(null),dragDepth=useRef(0),abort=useRef(null);
  useEffect(()=>()=>abort.current?.abort(),[]);
  const busy=phase==='feeding';
- const feed=async(chosen)=>{
+ const feed=async(chosen,isSample=false)=>{
   if(!chosen||busy)return;
   setFile({name:chosen.name,size:chosen.size});setDrag(false);dragDepth.current=0;setPhase('feeding');setResult(null);setError('');setMore(false);
   abort.current?.abort();const ctl=abort.current=new AbortController();
   const chomp=wait(MIN_CHOMP);
-  try{const data=await eat(chosen,ctl.signal);await chomp;setResult(data);setPhase('done');setSnacks(x=>x+1);}
+  try{const data=await eat(chosen,isSample,ctl.signal);await chomp;setResult(data);setPhase('done');setSnacks(x=>x+1);}
   catch(e){if(e.name==='AbortError')return;await chomp;setError(e.message);setPhase('error');}
  };
  const sample=async(name)=>{
   if(busy)return;
-  try{const res=await fetch(`samples/${name}`);if(!res.ok)throw new Error();const blob=await res.blob();feed(new File([blob],name,{type:blob.type||'image/jpeg'}));}
+  try{const res=await fetch(`samples/${name}`);if(!res.ok)throw new Error();const blob=await res.blob();feed(new File([blob],name,{type:blob.type||'image/jpeg'}),true);}
   catch{setFile({name,size:0});setError('Plug-Fest Bot couldn’t find that sample.');setPhase('error');}
  };
  const v=result&&VERDICTS[result.verdict];
+ const summary=result?describeNounsAndVerbs(result.outcome):'';
  const speech=drag?'Ooh, for me?':busy?'nom nom nom…':phase==='done'?v.speech:phase==='error'?'Blech.':'Got any files?';
  const headline=drag?'Drop it. He’s ready.':busy?'One very happy robot.':phase==='done'?v.headline:phase==='error'?'Plug-Fest Bot couldn’t digest that.':'Feed him a file.';
  return <div className="page"><header><a className="logo" href="./" aria-label="Plug-Fest Bot home"><span className="logo-face"><i/><i/></span>plug-fest bot<span className="logo-dot">.</span></a><span className="header-note"><span/> A friendly little AI taster</span><button className="about" onClick={()=>setHowOpen(true)}>How it works <span>↗</span></button></header>
@@ -50,10 +53,10 @@ export function App(){
  <Robot phase={phase} drag={drag}/><span className="robot-label">PLUG-FEST BOT / MODEL 001</span></div>
  <div className={`upload-card ${phase} ${v?`verdict-${result.verdict}`:''}`}><div className="upload-symbol">{v?<span>{v.icon}</span>:phase==='error'?<span>!</span>:<FileIcon size={24}/>}</div><div className="upload-copy"><h2>{headline}</h2><p>{file&&phase!=='idle'&&!drag?<span className="filename">{file.name} <span>· {fmtSize(file.size)}</span></span>:'Drop a file here, or pick something tasty.'}</p></div><input ref={input} type="file" hidden onChange={e=>{feed(e.target.files[0]);e.target.value='';}}/><button className="choose" disabled={busy} onClick={()=>input.current.click()}>{busy?'Munching…':phase==='idle'?'Choose a file':phase==='error'?'Try another':'Feed again'}{!busy&&<span>↗</span>}</button>
  {busy&&<div className="progress chomping" role="progressbar" aria-label="Plug-Fest Bot is checking your file"><div/></div>}
- {v&&<div className="verdict"><span className={`chip chip-${result.verdict}`}><span aria-hidden="true">{v.icon}</span>{v.label}</span><p className="reason">{result.reason}</p><button className="more" aria-expanded={more} aria-controls="details" onClick={()=>setMore(m=>!m)}>{more?'Show less':'Tell me more'} <span>{more?'↑':'↓'}</span></button></div>}
+ {v&&<div className="verdict">{summary&&<p className="summary">{summary}</p>}<span className={`chip chip-${result.verdict}`}><span aria-hidden="true">{v.icon}</span>{v.label}</span><p className="reason">{result.reason}</p><button className="more" aria-expanded={more} aria-controls="details" onClick={()=>setMore(m=>!m)}>{more?'Show less':'Tell me more'} <span>{more?'↑':'↓'}</span></button>{result.id&&<Feedback key={result.id} id={result.id} verdict={result.verdict}/>}</div>}
  {phase==='error'&&<div className="verdict"><p className="reason">{error}</p></div>}</div>
  {more&&result&&<Details outcome={result.outcome}/>}
- <div className="below-card"><span><svg width="13" height="15" viewBox="0 0 16 18" fill="none" aria-hidden="true"><rect x="2" y="7" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V4a3 3 0 0 1 6 0v3" stroke="currentColor" strokeWidth="1.5"/></svg> Your file is checked by our server and not stored.</span><span className="samples"><span>Try a sample:</span>{SAMPLES.map(s=><button key={s.file} disabled={busy} onClick={()=>sample(s.file)}>{s.label}</button>)}</span></div>
+ <div className="below-card"><span><svg width="13" height="15" viewBox="0 0 16 18" fill="none" aria-hidden="true"><rect x="2" y="7" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V4a3 3 0 0 1 6 0v3" stroke="currentColor" strokeWidth="1.5"/></svg> Files you upload are kept to help Plug-Fest Bot learn.</span><span className="samples"><span>Try a sample:</span>{SAMPLES.map(s=><button key={s.file} disabled={busy} onClick={()=>sample(s.file)}>{s.label}</button>)}</span></div>
  </section>
  <div className="how"><span className="how-title">GOOD FILES. GOOD MOOD.</span><p>Pick any file. Watch Plug-Fest Bot chomp. See what its credentials say.</p><span className="snack-count"><span>♡</span> {snacks===0?'Always hungry':`${snacks} ${snacks===1?'snack':'snacks'} enjoyed`}</span></div>
  <div className="sr-only" role="status" aria-live="polite">{phase==='done'?`Plug-Fest Bot tasted ${file.name}: ${v.label}. ${result.reason}`:phase==='error'?`Plug-Fest Bot couldn’t digest that. ${error}`:busy?'Plug-Fest Bot is checking your file.':''}</div>

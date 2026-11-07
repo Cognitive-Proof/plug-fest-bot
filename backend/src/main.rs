@@ -1,11 +1,14 @@
 //! Nom's stomach. `POST /api/eat` takes one multipart `file`, reads its C2PA manifest store with
 //! c2pa-rs, and answers with the reference classifier's verdict (ai / includes-ai / no-ai /
 //! unknown), its reason, and the store as a `VerificationOutcome` for the React components.
-//! Uploads are read in memory and never written to disk.
+//! Uploads are never written to local disk. When recording is configured (see `record`), each
+//! upload is kept in Cloud Storage and Firestore, and `POST /api/feedback` records whether
+//! people think its verdict was right.
 
 #[allow(dead_code)] // copied verbatim; the lint-only helpers are unused here
 mod classify;
 mod outcome;
+mod record;
 
 use std::{io::Cursor, net::SocketAddr, path::Path, sync::Arc};
 
@@ -18,6 +21,8 @@ use axum::{
 };
 use c2pa::{Context, Reader, Settings};
 use classify::Store;
+use record::{Recorder, Upload, VERDICTS};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
@@ -68,31 +73,94 @@ fn format_hint(content_type: Option<&str>, name: &str) -> String {
     }
 }
 
-async fn eat_upload(State(ctx): State<Arc<Context>>, mut form: Multipart) -> Result<Json<Value>, (StatusCode, String)> {
+#[derive(Clone)]
+struct AppState {
+    ctx: Arc<Context>,
+    recorder: Option<Arc<Recorder>>,
+}
+
+type ApiError = (StatusCode, String);
+
+/// `file` is the upload; `sample` is "true" when it is one of the site's own sample files.
+async fn eat_upload(State(app): State<AppState>, mut form: Multipart) -> Result<Json<Value>, ApiError> {
     let bad = |e: &dyn std::fmt::Display| (StatusCode::BAD_REQUEST, e.to_string());
+    let (mut file, mut sample) = (None, false);
     while let Some(field) = form.next_field().await.map_err(|e| bad(&e))? {
-        if field.name() != Some("file") {
-            continue;
+        match field.name() {
+            Some("file") => {
+                let name = field.file_name().unwrap_or("upload").to_string();
+                let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+                file = Some((name, content_type, field.bytes().await.map_err(|e| bad(&e))?));
+            }
+            Some("sample") => sample = field.text().await.map_err(|e| bad(&e))? == "true",
+            _ => {}
         }
-        let name = field.file_name().unwrap_or("upload").to_string();
-        let format = format_hint(field.content_type(), &name);
-        let bytes = field.bytes().await.map_err(|e| bad(&e))?;
-        let body = tokio::task::spawn_blocking(move || eat(&ctx, &name, &format, &bytes))
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        return Ok(Json(body));
     }
-    Err((StatusCode::BAD_REQUEST, "no `file` field in the upload".into()))
+    let Some((name, content_type, bytes)) = file else {
+        return Err((StatusCode::BAD_REQUEST, "no `file` field in the upload".into()));
+    };
+
+    let (ctx, n, f, b) = (app.ctx.clone(), name.clone(), format_hint(Some(&content_type), &name), bytes.clone());
+    let mut body = tokio::task::spawn_blocking(move || eat(&ctx, &n, &f, &b))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Recording is best effort: a storage failure shouldn't cost the person their verdict.
+    body["id"] = Value::Null;
+    if let Some(recorder) = &app.recorder {
+        let upload = Upload {
+            name: &name,
+            content_type: &content_type,
+            bytes: &bytes,
+            verdict: body["verdict"].as_str().unwrap_or_default(),
+            reason: body["reason"].as_str().unwrap_or_default(),
+            sample,
+        };
+        match recorder.record(upload).await {
+            Ok(id) => body["id"] = json!(id),
+            Err(e) => eprintln!("recording {name}: {e:#}"),
+        }
+    }
+    Ok(Json(body))
+}
+
+#[derive(Deserialize)]
+struct Feedback {
+    id: String,
+    correct: bool,
+    /// What the verdict should have been; required when `correct` is false.
+    expected: Option<String>,
+}
+
+async fn feedback(State(app): State<AppState>, Json(f): Json<Feedback>) -> Result<StatusCode, ApiError> {
+    let Some(recorder) = &app.recorder else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "feedback isn't being recorded on this server".into()));
+    };
+    let expected = match (f.correct, f.expected.as_deref()) {
+        (true, _) => None,
+        (false, Some(v)) if VERDICTS.contains(&v) => Some(v),
+        (false, _) => return Err((StatusCode::BAD_REQUEST, format!("`expected` must be one of {VERDICTS:?}"))),
+    };
+    let found = recorder.feedback(&f.id, f.correct, expected).await.map_err(|e| {
+        eprintln!("feedback for {}: {e:#}", f.id);
+        (StatusCode::BAD_GATEWAY, "couldn't save feedback".into())
+    })?;
+    if !found {
+        return Err((StatusCode::NOT_FOUND, "no upload with that id".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist");
+    let state = AppState { ctx: context()?, recorder: Recorder::from_env().await.map(Arc::new) };
     let app = Router::new()
         .route("/api/eat", post(eat_upload))
+        .route("/api/feedback", post(feedback))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
         .layer(CorsLayer::permissive())
-        .with_state(context()?)
+        .with_state(state)
         // The built frontend, when there is one (`npm run build`).
         .fallback_service(ServeDir::new(dist));
 

@@ -24,6 +24,8 @@ steps:
       - --region=${_REGION}
       - --service-account=plug-fest-bot-run@${PROJECT_ID}.iam.gserviceaccount.com
       - --allow-unauthenticated
+      # Keep uploads (bucket) and their records and feedback (Firestore) in this project.
+      - --set-env-vars=UPLOAD_BUCKET=plug-fest-bot-uploads,GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
       - --memory=1Gi
       - --max-instances=3
       - --quiet

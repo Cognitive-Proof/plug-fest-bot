@@ -10,6 +10,12 @@ description = "Nom's stomach: reads an uploaded file's C2PA manifest and says wh
 c2pa = { path = "../../c2pa-rs/sdk" }
 anyhow = "1"
 axum = { version = "0.8", features = ["multipart"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+gcp_auth = "0.12"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }

@@ -43,7 +43,26 @@ cargo test --release --manifest-path backend/Cargo.toml
 
 This checks every file in `../c2pa-ai-examples/labels.json` gets its expected verdict.
 
+## Uploads and feedback
+
+When `UPLOAD_BUCKET` and `GOOGLE_CLOUD_PROJECT` are set (Cloud Run sets them in `cloudbuild.yaml`),
+the backend keeps every upload so we can find the files Plug-Fest Bot gets wrong:
+
+- The file goes to `gs://plug-fest-bot-uploads/uploads/<id>/<name>` (private bucket).
+- Firestore `uploads/<id>` records `fileName`, `size`, `contentType`, `sha256`, `uploadedAt`,
+  `storagePath`, `verdict`, `reason` and `sample` (one of the site's own sample files).
+- The Right / Wrong buttons call `POST /api/feedback`, which adds
+  `feedback: { correct, expected, submittedAt }` to that document (`expected` only when wrong).
+
+Without those variables nothing is kept and the buttons are hidden. To record from your machine:
+
+```sh
+gcloud auth application-default login
+UPLOAD_BUCKET=plug-fest-bot-uploads GOOGLE_CLOUD_PROJECT=plug-fest-bot npm run dev:api
+```
+
 ## Privacy
 
-Uploads are read in memory and never written to disk. The server never fetches remote manifests.
-Trust uses the c2pa-ai-examples test trust anchors (`backend/settings/`).
+Uploads are never written to the server's disk; when recording is on they are kept in the bucket
+above. The server never fetches remote manifests. Trust uses the c2pa-ai-examples test trust
+anchors (`backend/settings/`).

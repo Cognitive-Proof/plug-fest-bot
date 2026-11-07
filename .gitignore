@@ -1,3 +1,7 @@
 node_modules
 dist
 backend/target
+
+# yalc (local dev only)
+.yalc
+yalc.lock
