@@ -22,6 +22,14 @@ for role in roles/run.admin roles/artifactregistry.writer roles/logging.logWrite
 done
 gcloud iam service-accounts add-iam-policy-binding "$RUN_SA" --member="serviceAccount:$DEPLOY_SA" --role=roles/iam.serviceAccountUser --format=none
 
+# The GitHub connection keeps its OAuth token in Secret Manager, written by the
+# Cloud Build service agent.
+gcloud services enable secretmanager.googleapis.com
+NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:service-$NUMBER@gcp-sa-cloudbuild.iam.gserviceaccount.com" \
+  --role=roles/secretmanager.admin --condition=None --format=none
+
 # Prints a link: open it, sign in to GitHub, and install the Cloud Build app on
 # the Cognitive-Proof org with access to the plug-fest-bot repository.
 gcloud builds connections create github "$CONNECTION" --region="$REGION"
