@@ -1,0 +1,15 @@
+[package]
+name = "nom-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Nom's stomach: reads an uploaded file's C2PA manifest and says whether it declares generative AI"
+
+[dependencies]
+# Same local c2pa-rs checkout c2pa-ai-examples builds against, so verdicts match its labels.json.
+c2pa = { path = "../../c2pa-rs/sdk" }
+anyhow = "1"
+axum = { version = "0.8", features = ["multipart"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }

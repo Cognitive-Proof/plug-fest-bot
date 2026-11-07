@@ -1,0 +1,20 @@
+{
+  "name": "plug-fest-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "dev:api": "cargo run --manifest-path backend/Cargo.toml",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.12.1",
+    "c2pa-react-ai-disclaimer": "^0.2.0",
+    "c2pa-react-component": "^0.1.22",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
