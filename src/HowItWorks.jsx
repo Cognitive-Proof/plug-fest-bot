@@ -2,7 +2,7 @@ import React, {useEffect, useRef} from 'react';
 
 // Plain-language summary of "The policy" in c2pa-ai-examples/README.md.
 const STEPS=[
- ['Read the credentials','Plug-Fest Bot looks for a C2PA manifest (Content Credentials) in your file. If there isn’t one, or its signature or validation fails, the answer is Unknown.'],
+ ['Read the credentials','Plug-Fest Bot looks for a C2PA manifest (Content Credentials) in your file, or fetches it when the file links to one online (as Adobe’s cloud Content Credentials do). If there isn’t one, or its signature or validation fails, the answer is Unknown.'],
  ['Skip update-only steps','Steps that only open, publish or edit metadata can’t change the content, so they take the answer of the file they came from.'],
  ['Find the origin','How was the content first made? Plug-Fest Bot reads the declared source type (camera capture, digital art, trained model…), or follows the file it was opened from and checks that the same way.'],
  ['Check the ingredients','Pieces placed into the content are checked the same way. Pieces later deleted, and model inputs like prompts or reference images, don’t count.'],

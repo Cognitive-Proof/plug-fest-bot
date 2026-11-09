@@ -64,5 +64,8 @@ UPLOAD_BUCKET=plug-fest-bot-uploads GOOGLE_CLOUD_PROJECT=plug-fest-bot npm run d
 ## Privacy
 
 Uploads are never written to the server's disk; when recording is on they are kept in the bucket
-above. The server never fetches remote manifests. Trust uses the c2pa-ai-examples test trust
+above. When a file only links to its manifest (a remote manifest, e.g. Adobe's cloud Content
+Credentials), the server fetches it once with limits: HTTPS only, public addresses only (the
+connection is pinned to the checked address), no redirects, 5 MB and 10 seconds at most
+(`backend/src/remote.rs`). The URL is recorded as `remoteManifest`. Trust uses the c2pa-ai-examples test trust
 anchors (`backend/settings/`).

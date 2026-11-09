@@ -20,6 +20,7 @@ async function eat(file,sample,signal){
  return data;
 }
 
+const hostOf=url=>{try{return new URL(url).host;}catch{return url;}};
 const fmtSize=n=>n<1024?`${n} B`:n<1024*1024?`${(n/1024).toFixed(1)} KB`:`${(n/1024/1024).toFixed(1)} MB`;
 
 export function App(){
@@ -53,7 +54,7 @@ export function App(){
  <Robot phase={phase} drag={drag}/><span className="robot-label">PLUG-FEST BOT / MODEL 001</span></div>
  <div className={`upload-card ${phase} ${v?`verdict-${result.verdict}`:''}`}><div className="upload-symbol">{v?<span>{v.icon}</span>:phase==='error'?<span>!</span>:<FileIcon size={24}/>}</div><div className="upload-copy"><h2>{headline}</h2><p>{file&&phase!=='idle'&&!drag?<span className="filename">{file.name} <span>· {fmtSize(file.size)}</span></span>:'Drop a file here, or pick something tasty.'}</p></div><input ref={input} type="file" hidden onChange={e=>{feed(e.target.files[0]);e.target.value='';}}/><button className="choose" disabled={busy} onClick={()=>input.current.click()}>{busy?'Munching…':phase==='idle'?'Choose a file':phase==='error'?'Try another':'Feed again'}{!busy&&<span>↗</span>}</button>
  {busy&&<div className="progress chomping" role="progressbar" aria-label="Plug-Fest Bot is checking your file"><div/></div>}
- {v&&<div className="verdict">{summary&&<p className="summary">{summary}</p>}<span className={`chip chip-${result.verdict}`}><span aria-hidden="true">{v.icon}</span>{v.label}</span><p className="reason">{result.reason}</p><button className="more" aria-expanded={more} aria-controls="details" onClick={()=>setMore(m=>!m)}>{more?'Show less':'Tell me more'} <span>{more?'↑':'↓'}</span></button>{result.id&&<Feedback key={result.id} id={result.id} verdict={result.verdict}/>}</div>}
+ {v&&<div className="verdict">{summary&&<p className="summary">{summary}</p>}<span className={`chip chip-${result.verdict}`}><span aria-hidden="true">{v.icon}</span>{v.label}</span><p className="reason">{result.reason}{result.remoteManifest&&<span className="remote-note"> Content Credentials fetched from {hostOf(result.remoteManifest)}.</span>}</p><button className="more" aria-expanded={more} aria-controls="details" onClick={()=>setMore(m=>!m)}>{more?'Show less':'Tell me more'} <span>{more?'↑':'↓'}</span></button>{result.id&&<Feedback key={result.id} id={result.id} verdict={result.verdict}/>}</div>}
  {phase==='error'&&<div className="verdict"><p className="reason">{error}</p></div>}</div>
  {more&&result&&<Details outcome={result.outcome}/>}
  <div className="below-card"><span><svg width="13" height="15" viewBox="0 0 16 18" fill="none" aria-hidden="true"><rect x="2" y="7" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V4a3 3 0 0 1 6 0v3" stroke="currentColor" strokeWidth="1.5"/></svg> Files you upload are kept to help Plug-Fest Bot learn.</span><span className="samples"><span>Try a sample:</span>{SAMPLES.map(s=><button key={s.file} disabled={busy} onClick={()=>sample(s.file)}>{s.label}</button>)}</span></div>

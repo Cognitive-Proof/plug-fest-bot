@@ -3,12 +3,14 @@
 //! unknown), its reason, and the store as a `VerificationOutcome` for the React components.
 //! Uploads are never written to local disk. When recording is configured (see `record`), each
 //! upload is kept in Cloud Storage and Firestore, and `POST /api/feedback` records whether
-//! people think its verdict was right.
+//! people think its verdict was right. A file whose manifest is only linked (a remote manifest)
+//! has it fetched with the limits in `remote`.
 
 #[allow(dead_code)] // copied verbatim; the lint-only helpers are unused here
 mod classify;
 mod outcome;
 mod record;
+mod remote;
 
 use std::{io::Cursor, net::SocketAddr, path::Path, sync::Arc};
 
@@ -28,11 +30,12 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 
 const MAX_UPLOAD: usize = 100 * 1024 * 1024;
 
-/// Reader settings: the c2pa-ai-examples test trust anchors, and no network access.
+/// Reader settings: the c2pa-ai-examples test trust anchors, and no network access of its own.
 fn settings() -> Result<Settings> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("settings/c2pa-test-settings.json");
     let mut s: Value = serde_json::from_str(&std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?)?;
-    // A server shouldn't fetch URLs named by an uploaded file.
+    // c2pa-rs would fetch any URL a file names. Instead it reports the URL, and `remote::fetch`
+    // gets it with limits.
     s["verify"]["remote_manifest_fetch"] = json!(false);
     Ok(Settings::new().with_json(&s.to_string())?)
 }
@@ -41,18 +44,55 @@ fn context() -> Result<Arc<Context>> {
     Ok(Context::new().with_settings(settings()?)?.into_shared())
 }
 
-/// The `Reader::json()` and `Reader::detailed_json()` views of `bytes`, or `None` if no
-/// manifest store could be read. `format` is a hint; c2pa-rs detects the format from the bytes.
-fn views(ctx: &Arc<Context>, format: &str, bytes: &[u8]) -> Option<(Value, Value)> {
-    let r = Reader::from_shared_context(ctx).with_stream(format, Cursor::new(bytes)).ok()?;
-    Some((serde_json::from_str(&r.json()).ok()?, serde_json::from_str(&r.detailed_json()).ok()?))
+type Views = (Value, Value);
+
+/// The `Reader::json()` and `Reader::detailed_json()` views of `bytes`, read from the manifest
+/// embedded in it, or from `manifest` (a fetched remote manifest) validated against it.
+/// `format` is a hint; c2pa-rs detects the format from the bytes.
+fn views(ctx: &Arc<Context>, format: &str, bytes: &[u8], manifest: Option<&[u8]>) -> c2pa::Result<Views> {
+    let reader = Reader::from_shared_context(ctx);
+    let r = match manifest {
+        Some(m) => reader.with_manifest_data_and_stream(m, format, Cursor::new(bytes))?,
+        None => reader.with_stream(format, Cursor::new(bytes))?,
+    };
+    let parse = |s: String| serde_json::from_str(&s).map_err(c2pa::Error::JsonError);
+    Ok((parse(r.json())?, parse(r.detailed_json())?))
+}
+
+/// What reading an upload found: its views, the remote manifest URL if it had one, and why it
+/// couldn't be read when that's worth telling the person.
+struct Read {
+    views: Option<Views>,
+    remote: Option<String>,
+    problem: Option<String>,
+}
+
+async fn read_upload(ctx: Arc<Context>, format: String, bytes: axum::body::Bytes) -> Read {
+    let blocking = |manifest: Option<Vec<u8>>| {
+        let (ctx, format, bytes) = (ctx.clone(), format.clone(), bytes.clone());
+        tokio::task::spawn_blocking(move || views(&ctx, &format, &bytes, manifest.as_deref()))
+    };
+    let first = blocking(None).await.unwrap_or_else(|e| Err(c2pa::Error::OtherError(e.into())));
+    let url = match first {
+        Ok(v) => return Read { views: Some(v), remote: None, problem: None },
+        Err(c2pa::Error::RemoteManifestUrl(url)) => url,
+        Err(_) => return Read { views: None, remote: None, problem: None },
+    };
+    let problem = match remote::fetch(&url).await {
+        Ok(manifest) => match blocking(Some(manifest)).await {
+            Ok(Ok(v)) => return Read { views: Some(v), remote: Some(url), problem: None },
+            Ok(Err(e)) => format!("remote manifest at {url} couldn't be read: {e}"),
+            Err(e) => format!("remote manifest at {url} couldn't be read: {e}"),
+        },
+        Err(e) => format!("remote manifest at {url} couldn't be fetched: {e:#}"),
+    };
+    Read { views: None, remote: Some(url), problem: Some(problem) }
 }
 
 /// Classifies one file and builds the response body.
-fn eat(ctx: &Arc<Context>, name: &str, format: &str, bytes: &[u8]) -> Value {
-    let views = views(ctx, format, bytes);
-    let (verdict, reason) = classify::classify(views.as_ref().map(|(j, d)| Store { json: j, detailed: d }));
-    let outcome = match &views {
+fn eat(name: &str, size: usize, views: Option<&Views>) -> Value {
+    let (verdict, reason) = classify::classify(views.map(|(j, d)| Store { json: j, detailed: d }));
+    let outcome = match views {
         Some((j, d)) => outcome::outcome(j, d),
         None => json!({ "state": false, "manifests": [], "error": "no readable C2PA manifest" }),
     };
@@ -60,7 +100,7 @@ fn eat(ctx: &Arc<Context>, name: &str, format: &str, bytes: &[u8]) -> Value {
         "verdict": verdict.dir(),
         "reason": reason,
         "fileName": name,
-        "size": bytes.len(),
+        "size": size,
         "outcome": outcome,
     })
 }
@@ -100,10 +140,12 @@ async fn eat_upload(State(app): State<AppState>, mut form: Multipart) -> Result<
         return Err((StatusCode::BAD_REQUEST, "no `file` field in the upload".into()));
     };
 
-    let (ctx, n, f, b) = (app.ctx.clone(), name.clone(), format_hint(Some(&content_type), &name), bytes.clone());
-    let mut body = tokio::task::spawn_blocking(move || eat(&ctx, &n, &f, &b))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let read = read_upload(app.ctx.clone(), format_hint(Some(&content_type), &name), bytes.clone()).await;
+    let mut body = eat(&name, bytes.len(), read.views.as_ref());
+    body["remoteManifest"] = json!(read.remote);
+    if let Some(problem) = &read.problem {
+        body["reason"] = json!(problem);
+    }
 
     // Recording is best effort: a storage failure shouldn't cost the person their verdict.
     body["id"] = Value::Null;
@@ -114,6 +156,7 @@ async fn eat_upload(State(app): State<AppState>, mut form: Multipart) -> Result<
             bytes: &bytes,
             verdict: body["verdict"].as_str().unwrap_or_default(),
             reason: body["reason"].as_str().unwrap_or_default(),
+            remote_manifest: read.remote.as_deref(),
             sample,
         };
         match recorder.record(upload).await {
@@ -202,8 +245,10 @@ mod tests {
         for l in &labels {
             let file = l["file"].as_str().unwrap();
             let bytes = std::fs::read(root.join(file)).unwrap();
-            let got = &eat(&ctx, file, &format_hint(None, file), &bytes)["verdict"];
-            let got = match (&l["knownSdkIssue"]["code"], views(&ctx, &format_hint(None, file), &bytes)) {
+            // Without fetching: u06's remote manifest was never published, so it's unknown either way.
+            let read = views(&ctx, &format_hint(None, file), &bytes, None).ok();
+            let got = &eat(file, bytes.len(), read.as_ref())["verdict"];
+            let got = match (&l["knownSdkIssue"]["code"], read.clone()) {
                 (Value::String(code), Some((mut j, d))) => {
                     assert_eq!(got, &l["knownSdkIssue"]["sdkVerdict"], "{file}: SDK verdict");
                     drop_status(&mut j, code);

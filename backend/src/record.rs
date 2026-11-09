@@ -29,6 +29,8 @@ pub struct Upload<'a> {
     pub bytes: &'a [u8],
     pub verdict: &'a str,
     pub reason: &'a str,
+    /// The remote manifest the file links to, if any.
+    pub remote_manifest: Option<&'a str>,
     pub sample: bool,
 }
 
@@ -80,7 +82,7 @@ impl Recorder {
             .await?;
         check(res, "storing the upload").await?;
 
-        let fields = json!({
+        let mut fields = json!({
             "fileName": { "stringValue": u.name },
             "size": { "integerValue": u.bytes.len().to_string() },
             "contentType": { "stringValue": u.content_type },
@@ -91,6 +93,9 @@ impl Recorder {
             "reason": { "stringValue": u.reason },
             "sample": { "booleanValue": u.sample },
         });
+        if let Some(url) = u.remote_manifest {
+            fields["remoteManifest"] = json!({ "stringValue": url });
+        }
         let res = self
             .http
             .post(format!(
