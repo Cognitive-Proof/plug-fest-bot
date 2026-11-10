@@ -6,6 +6,7 @@ about generative AI: **AI**, **Includes AI**, **No AI** or **Unknown**.
 - `backend/`: Rust (axum + c2pa-rs). `POST /api/eat` reads the upload's manifest store and
   classifies it with the reference classifier from
   [c2pa-ai-examples](../c2pa-ai-examples) (`backend/src/classify.rs` is a verbatim copy).
+- `backend/` also serves a public API (`/api/v1/…`) and an MCP server (`/mcp`); see below.
 - `src/`: React (Vite). Shows the verdict, **Tell me more** (via `c2pa-react-component` and
   `c2pa-react-ai-disclaimer`) and **How it works**.
 
@@ -66,6 +67,37 @@ npm run check:signals                       # JS output must equal the Python go
 `check:signals` compares the port with every `*.signals.json` next to a crJSON file in the given
 directories (default `../conformance/asset-rubrics/test`).
 
+## Public API
+
+For scripts. Nothing sent here is kept, whatever the recording settings below.
+
+```sh
+curl -F file=@photo.jpg https://<host>/api/v1/classify
+curl -H 'Content-Type: application/json' -d '{"url":"https://example.com/photo.jpg"}' https://<host>/api/v1/classify-url
+```
+
+Both answer with `verdict`, `reason`, `fileName`, `size`, `remoteManifest` and `manifest` (the
+active manifest's generator, signer and validation state). `?detail=true` adds `outcome` and
+`crjson`, as the website gets them. `classify-url` downloads the file with the same limits as a
+remote manifest (HTTPS, public addresses, no redirects) but up to 100 MB and 60 seconds.
+
+## MCP server
+
+`https://<host>/mcp` is a remote MCP server (Streamable HTTP, stateless, no sign-in) with two
+tools:
+
+- `classify_url`: give it a file's HTTPS URL; the server downloads and classifies it.
+- `classify_file`: the file inline as base64, up to 20 MB.
+
+Add it to an MCP client as a remote (HTTP) server with that URL, for example
+`claude mcp add --transport http plug-fest-bot https://<host>/mcp`. Like the API, it keeps nothing.
+
+## Rate limit
+
+`/api/*` and `/mcp` allow 60 requests a minute from one address on each instance (Cloud Run runs
+at most 3). Set `RATE_LIMIT_PER_MINUTE` to change it, or `0` to turn it off (for bulk runs on
+your own machine).
+
 ## Uploads and feedback
 
 When `UPLOAD_BUCKET` and `GOOGLE_CLOUD_PROJECT` are set (Cloud Run sets them in `cloudbuild.yaml`),
@@ -77,7 +109,10 @@ the backend keeps every upload so we can find the files Plug-Fest Bot gets wrong
 - The Right / Wrong buttons call `POST /api/feedback`, which adds
   `feedback: { correct, expected, submittedAt }` to that document (`expected` only when wrong).
 
-Without those variables nothing is kept and the buttons are hidden. To record from your machine:
+Without those variables, or with `NO_STORAGE=true`, nothing is kept: no bucket or Firestore is
+touched, the Right / Wrong buttons are hidden and How it works says files aren't kept
+(`GET /api/info` tells the frontend). To turn recording off on Cloud Run, add `NO_STORAGE=true`
+to `--set-env-vars` in `cloudbuild.yaml`. To record from your machine:
 
 ```sh
 gcloud auth application-default login

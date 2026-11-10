@@ -1,5 +1,6 @@
-//! Fetches a remote C2PA manifest (one a file links to, e.g. from its XMP `dcterms:provenance`)
-//! with limits, because the URL comes from an untrusted upload: HTTPS only, every address the
+//! Fetches a remote C2PA manifest (one a file links to, e.g. from its XMP `dcterms:provenance`),
+//! or a whole file for the MCP `classify_url` tool, with limits, because the URL comes from an
+//! untrusted upload or caller: HTTPS only, every address the
 //! host resolves to must be public (no loopback, private, link-local or metadata addresses), the
 //! connection is pinned to the checked address so DNS can't change it afterwards, no redirects,
 //! a size cap and a timeout.
@@ -12,10 +13,31 @@ use std::{
 use anyhow::{bail, Context as _, Result};
 use reqwest::{redirect, Url};
 
-const MAX_BYTES: usize = 5 * 1024 * 1024;
-const TIMEOUT: Duration = Duration::from_secs(10);
+/// How much to fetch, how long to wait, and what to ask for.
+pub struct Limits {
+    max_bytes: usize,
+    timeout: Duration,
+    accept: &'static str,
+    what: &'static str,
+}
 
-pub async fn fetch(url: &str) -> Result<Vec<u8>> {
+/// A remote manifest: 5 MB and 10 seconds at most.
+pub const MANIFEST: Limits =
+    Limits { max_bytes: 5 * 1024 * 1024, timeout: Duration::from_secs(10), accept: "application/c2pa", what: "manifest" };
+
+/// A file to classify: the upload size limit and 60 seconds at most.
+pub const ASSET: Limits =
+    Limits { max_bytes: crate::MAX_UPLOAD, timeout: Duration::from_secs(60), accept: "*/*", what: "file" };
+
+/// The body, and the `Content-Type` the server gave it.
+pub struct Fetched {
+    pub bytes: Vec<u8>,
+    pub content_type: Option<String>,
+}
+
+pub async fn fetch(url: &str, limits: &Limits) -> Result<Fetched> {
+    let Limits { max_bytes, timeout, accept, what } = *limits;
+    let too_big = || anyhow::anyhow!("{what} is larger than {} MB", max_bytes / 1024 / 1024);
     let url = Url::parse(url).context("not a valid URL")?;
     if url.scheme() != "https" {
         bail!("only https URLs are fetched");
@@ -23,7 +45,7 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>> {
     let host = url.host_str().context("URL has no host")?.to_string();
     let port = url.port_or_known_default().unwrap_or(443);
 
-    let addrs: Vec<SocketAddr> = tokio::time::timeout(TIMEOUT, tokio::net::lookup_host((host.as_str(), port)))
+    let addrs: Vec<SocketAddr> = tokio::time::timeout(timeout, tokio::net::lookup_host((host.as_str(), port)))
         .await
         .context("DNS lookup timed out")?
         .context("DNS lookup failed")?
@@ -35,24 +57,25 @@ pub async fn fetch(url: &str) -> Result<Vec<u8>> {
 
     let client = reqwest::Client::builder()
         .redirect(redirect::Policy::none())
-        .timeout(TIMEOUT)
+        .timeout(timeout)
         .resolve(&host, addr)
         .build()?;
-    let mut res = client.get(url).header(reqwest::header::ACCEPT, "application/c2pa").send().await?;
+    let mut res = client.get(url).header(reqwest::header::ACCEPT, accept).send().await?;
     if !res.status().is_success() {
         bail!("server answered {}", res.status());
     }
-    if res.content_length().is_some_and(|n| n as usize > MAX_BYTES) {
-        bail!("manifest is larger than {} MB", MAX_BYTES / 1024 / 1024);
+    if res.content_length().is_some_and(|n| n as usize > max_bytes) {
+        return Err(too_big());
     }
-    let mut body = Vec::new();
+    let content_type = res.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let mut bytes = Vec::new();
     while let Some(chunk) = res.chunk().await? {
-        if body.len() + chunk.len() > MAX_BYTES {
-            bail!("manifest is larger than {} MB", MAX_BYTES / 1024 / 1024);
+        if bytes.len() + chunk.len() > max_bytes {
+            return Err(too_big());
         }
-        body.extend_from_slice(&chunk);
+        bytes.extend_from_slice(&chunk);
     }
-    Ok(body)
+    Ok(Fetched { bytes, content_type })
 }
 
 /// Whether `ip` is a globally routable address, so fetching from it can't reach this server's
@@ -121,7 +144,7 @@ mod tests {
             ("https://localhost/m.c2pa", "non-public"),
             ("not a url", "not a valid URL"),
         ] {
-            let err = fetch(url).await.unwrap_err().to_string();
+            let err = fetch(url, &MANIFEST).await.err().unwrap().to_string();
             assert!(err.contains(why), "{url}: {err}");
         }
     }

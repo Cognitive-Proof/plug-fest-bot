@@ -25,9 +25,11 @@ const fmtSize=n=>n<1024?`${n} B`:n<1024*1024?`${(n/1024).toFixed(1)} KB`:`${(n/1
 
 export function App(){
  const [phase,setPhase]=useState('idle'),[drag,setDrag]=useState(false),[file,setFile]=useState(null),[snacks,setSnacks]=useState(0);
- const [result,setResult]=useState(null),[error,setError]=useState(''),[more,setMore]=useState(false),[howOpen,setHowOpen]=useState(false);
+ const [result,setResult]=useState(null),[error,setError]=useState(''),[more,setMore]=useState(false),[howOpen,setHowOpen]=useState(false),[recording,setRecording]=useState(true);
  const input=useRef(null),dragDepth=useRef(0),abort=useRef(null);
  useEffect(()=>()=>abort.current?.abort(),[]);
+ // Whether this server keeps uploads (it doesn't when NO_STORAGE is set); assume it does until told.
+ useEffect(()=>{fetch('/api/info').then(r=>r.ok?r.json():null).then(i=>{if(i)setRecording(i.recording);}).catch(()=>{});},[]);
  const busy=phase==='feeding';
  const feed=async(chosen,isSample=false)=>{
   if(!chosen||busy)return;
@@ -62,5 +64,5 @@ export function App(){
  <div className="how"><span className="how-title">GOOD FILES. GOOD MOOD.</span><p>Pick any file. Watch Plug-Fest Bot chomp. See what its credentials say.</p><span className="snack-count"><span>♡</span> {snacks===0?'Always hungry':`${snacks} ${snacks===1?'snack':'snacks'} enjoyed`}</span></div>
  <div className="sr-only" role="status" aria-live="polite">{phase==='done'?`Plug-Fest Bot tasted ${file.name}: ${v.label}. ${result.reason}`:phase==='error'?`Plug-Fest Bot couldn’t digest that. ${error}`:busy?'Plug-Fest Bot is checking your file.':''}</div>
  </main><footer><span>A small moment of joy, one file at a time.</span><span>Made for Plug-Fest <span className="tiny-heart">♥</span></span></footer>
- <HowItWorks open={howOpen} onClose={()=>setHowOpen(false)}/></div>
+ <HowItWorks open={howOpen} recording={recording} onClose={()=>setHowOpen(false)}/></div>
 }

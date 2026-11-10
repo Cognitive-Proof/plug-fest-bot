@@ -36,8 +36,13 @@ pub struct Upload<'a> {
 
 impl Recorder {
     /// A recorder when `UPLOAD_BUCKET` and `GOOGLE_CLOUD_PROJECT` are set and credentials are
-    /// found; otherwise `None`, and uploads aren't kept.
+    /// found; otherwise `None`, and uploads aren't kept. `NO_STORAGE=true` (or `1`) turns it off
+    /// whatever else is set: no bucket, no Firestore.
     pub async fn from_env() -> Option<Self> {
+        if std::env::var("NO_STORAGE").is_ok_and(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on")) {
+            println!("recording off: NO_STORAGE is set");
+            return None;
+        }
         let (Ok(bucket), Ok(project)) = (std::env::var("UPLOAD_BUCKET"), std::env::var("GOOGLE_CLOUD_PROJECT")) else {
             println!("recording off: set UPLOAD_BUCKET and GOOGLE_CLOUD_PROJECT to keep uploads");
             return None;

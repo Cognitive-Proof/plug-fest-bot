@@ -4,10 +4,14 @@
 //! Uploads are never written to local disk. When recording is configured (see `record`), each
 //! upload is kept in Cloud Storage and Firestore, and `POST /api/feedback` records whether
 //! people think its verdict was right. A file whose manifest is only linked (a remote manifest)
-//! has it fetched with the limits in `remote`.
+//! has it fetched with the limits in `remote`. The public API (`api`) and the MCP server (`mcp`)
+//! never keep anything, and `limit` rate-limits all of them.
 
+mod api;
 #[allow(dead_code)] // copied verbatim; the lint-only helpers are unused here
 mod classify;
+mod limit;
+mod mcp;
 mod outcome;
 mod record;
 mod remote;
@@ -16,19 +20,22 @@ use std::{io::Cursor, net::SocketAddr, path::Path, sync::Arc};
 
 use anyhow::{Context as _, Result};
 use axum::{
+    body::Bytes,
     extract::{DefaultBodyLimit, Multipart, State},
     http::StatusCode,
-    routing::post,
+    middleware,
+    routing::{get, post},
     Json, Router,
 };
 use c2pa::{Context, Reader, Settings};
 use classify::Store;
+use limit::RateLimit;
 use record::{Recorder, Upload, VERDICTS};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
-const MAX_UPLOAD: usize = 100 * 1024 * 1024;
+pub const MAX_UPLOAD: usize = 100 * 1024 * 1024;
 
 /// Reader settings: the c2pa-ai-examples test trust anchors plus the official C2PA signer and
 /// time-stamping trust lists (or the file `C2PA_SETTINGS` names), and no network access of its own.
@@ -72,7 +79,7 @@ struct Read {
     problem: Option<String>,
 }
 
-async fn read_upload(ctx: Arc<Context>, format: String, bytes: axum::body::Bytes) -> Read {
+async fn read_upload(ctx: Arc<Context>, format: String, bytes: Bytes) -> Read {
     let blocking = |manifest: Option<Vec<u8>>| {
         let (ctx, format, bytes) = (ctx.clone(), format.clone(), bytes.clone());
         tokio::task::spawn_blocking(move || views(&ctx, &format, &bytes, manifest.as_deref()))
@@ -83,8 +90,8 @@ async fn read_upload(ctx: Arc<Context>, format: String, bytes: axum::body::Bytes
         Err(c2pa::Error::RemoteManifestUrl(url)) => url,
         Err(_) => return Read { views: None, remote: None, problem: None },
     };
-    let problem = match remote::fetch(&url).await {
-        Ok(manifest) => match blocking(Some(manifest)).await {
+    let problem = match remote::fetch(&url, &remote::MANIFEST).await {
+        Ok(manifest) => match blocking(Some(manifest.bytes)).await {
             Ok(Ok(v)) => return Read { views: Some(v), remote: Some(url), problem: None },
             Ok(Err(e)) => format!("remote manifest at {url} couldn't be read: {e}"),
             Err(e) => format!("remote manifest at {url} couldn't be read: {e}"),
@@ -109,6 +116,18 @@ fn eat(name: &str, size: usize, views: Option<&Views>) -> Value {
         "outcome": outcome,
         "crjson": views.map(|(_, _, c)| c),
     })
+}
+
+/// Reads and classifies one file: the body `/api/eat` answers with, and what was read.
+async fn check(ctx: Arc<Context>, name: &str, content_type: &str, bytes: Bytes) -> (Value, Read) {
+    let size = bytes.len();
+    let read = read_upload(ctx, format_hint(Some(content_type), name), bytes).await;
+    let mut body = eat(name, size, read.views.as_ref());
+    body["remoteManifest"] = json!(read.remote);
+    if let Some(problem) = &read.problem {
+        body["reason"] = json!(problem);
+    }
+    (body, read)
 }
 
 /// A format hint from the upload's MIME type, else its file extension.
@@ -146,12 +165,7 @@ async fn eat_upload(State(app): State<AppState>, mut form: Multipart) -> Result<
         return Err((StatusCode::BAD_REQUEST, "no `file` field in the upload".into()));
     };
 
-    let read = read_upload(app.ctx.clone(), format_hint(Some(&content_type), &name), bytes.clone()).await;
-    let mut body = eat(&name, bytes.len(), read.views.as_ref());
-    body["remoteManifest"] = json!(read.remote);
-    if let Some(problem) = &read.problem {
-        body["reason"] = json!(problem);
-    }
+    let (mut body, read) = check(app.ctx.clone(), &name, &content_type, bytes.clone()).await;
 
     // Recording is best effort: a storage failure shouldn't cost the person their verdict.
     body["id"] = Value::Null;
@@ -171,6 +185,11 @@ async fn eat_upload(State(app): State<AppState>, mut form: Multipart) -> Result<
         }
     }
     Ok(Json(body))
+}
+
+/// What the frontend needs to know about this server.
+async fn info(State(app): State<AppState>) -> Json<Value> {
+    Json(json!({ "recording": app.recorder.is_some() }))
 }
 
 #[derive(Deserialize)]
@@ -204,9 +223,17 @@ async fn feedback(State(app): State<AppState>, Json(f): Json<Feedback>) -> Resul
 async fn main() -> Result<()> {
     let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist");
     let state = AppState { ctx: context()?, recorder: Recorder::from_env().await.map(Arc::new) };
-    let app = Router::new()
+    let mut limited = Router::new()
         .route("/api/eat", post(eat_upload))
         .route("/api/feedback", post(feedback))
+        .route("/api/v1/classify", post(api::classify))
+        .route("/api/v1/classify-url", post(api::classify_url))
+        .route("/mcp", post(mcp::post).get(mcp::get));
+    if let Some(limit) = RateLimit::from_env() {
+        limited = limited.route_layer(middleware::from_fn_with_state(limit, limit::check));
+    }
+    let app = limited
+        .route("/api/info", get(info))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -216,7 +243,8 @@ async fn main() -> Result<()> {
     let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8080);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("nom-server listening on http://localhost:{port}");
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    // The peer address is the rate limit's fallback when there's no X-Forwarded-For.
+    axum::serve(tokio::net::TcpListener::bind(addr).await?, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 

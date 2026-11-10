@@ -10,13 +10,13 @@ const STEPS=[
  ['Decide','AI if everything is AI and the history is complete. Includes AI if any generative AI is declared in the current content. Unknown if anything is unclear or steps may be missing. Otherwise, No AI. Whether steps may be missing follows the C2PA version the file was made under: before 2.5, files didn’t have to say their history was complete, so not saying it doesn’t count against them.'],
 ];
 
-export function HowItWorks({open,onClose}){
+export function HowItWorks({open,recording,onClose}){
  const ref=useRef(null);
  useEffect(()=>{const d=ref.current;if(!d)return;if(open&&!d.open)d.showModal();if(!open&&d.open)d.close();},[open]);
  return <dialog ref={ref} className="how-dialog" aria-labelledby="how-title" onClose={onClose} onClick={e=>{if(e.target===ref.current)onClose();}}>
  <div className="how-inner">
  <div className="how-head"><div><div className="eyebrow"><span/> HOW IT WORKS</div><h2 id="how-title">How Plug-Fest Bot tastes a file</h2></div><button className="close" onClick={onClose} aria-label="Close">×</button></div>
- <p className="how-lede">Your file goes to our server, which reads its Content Credentials with c2pa-rs and walks the signed history. We keep a copy of each file you upload, with its verdict and any Right / Wrong answer you give, so we can find the files Plug-Fest Bot gets wrong.</p>
+ <p className="how-lede">Your file goes to our server, which reads its Content Credentials with c2pa-rs and walks the signed history.{recording?' We keep a copy of each file you upload, with its verdict and any Right / Wrong answer you give, so we can find the files Plug-Fest Bot gets wrong.':' Your file isn’t kept: it’s read in memory and dropped once you have the answer.'}</p>
  <figure className="flow"><a href="how-it-works.svg" target="_blank" rel="noopener"><img src="how-it-works.svg" width="1491" height="1872" loading="lazy" alt="Flowchart of how Plug-Fest Bot decides a file’s verdict, following the steps below."/></a><figcaption><a href="how-it-works.svg" target="_blank" rel="noopener">Open full size ↗</a></figcaption></figure>
  <ol className="steps">{STEPS.map(([title,body])=><li key={title}><strong>{title}</strong><span>{body}</span></li>)}</ol>
  <p className="how-note"><strong>Good to know:</strong> the verdict describes what the file’s signed provenance <em>declares</em>. Plug-Fest Bot doesn’t analyse the pixels, so a file with no credentials, or credentials that leave things out, can’t be judged.</p>
