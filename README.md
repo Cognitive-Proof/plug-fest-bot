@@ -10,7 +10,10 @@ about generative AI: **AI**, **Includes AI**, **No AI** or **Unknown**.
   `c2pa-react-ai-disclaimer`) and **How it works**.
 
 The verdict describes what the signed provenance declares, not an analysis of the pixels. The
-policy is documented in the c2pa-ai-examples README.
+policy is documented in the c2pa-ai-examples README, with one difference (`backend/src/spec.rs`):
+an omitted `allActionsIncluded` is read by the spec version the claim declares. It was optional
+before C2PA 2.5, so for claims declaring an earlier version (or none) an omission counts as a
+complete history; from 2.5 it is required, so an omission leaves the history possibly incomplete.
 
 ## Requirements
 

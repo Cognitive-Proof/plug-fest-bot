@@ -1,4 +1,5 @@
 //! Copied unchanged (below this header) from c2pa-ai-examples/src/classify.rs at commit ae87c72.
+//! The bot reads omitted `allActionsIncluded` by spec version before calling it (see `spec`).
 //! Keep it in sync with that file rather than editing it here.
 //!
 //! Reference classifier: reads a C2PA manifest store (as `Reader::json()` output, plus

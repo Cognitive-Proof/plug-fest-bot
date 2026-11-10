@@ -7,7 +7,7 @@ const STEPS=[
  ['Find the origin','How was the content first made? Plug-Fest Bot reads the declared source type (camera capture, digital art, trained model…), or follows the file it was opened from and checks that the same way.'],
  ['Check the ingredients','Pieces placed into the content are checked the same way. Pieces later deleted, and model inputs like prompts or reference images, don’t count.'],
  ['Look at later edits','Crops, rotations and other preserving edits change nothing. Edits that may add content need to say whether AI made it. Undeclared or unrecognised edits, redacted history, or an AI disclosure with no source type make the answer unclear.'],
- ['Decide','AI if everything is AI and the history is complete. Includes AI if any generative AI is declared in the current content. Unknown if anything is unclear or steps may be missing. Otherwise, No AI.'],
+ ['Decide','AI if everything is AI and the history is complete. Includes AI if any generative AI is declared in the current content. Unknown if anything is unclear or steps may be missing. Otherwise, No AI. Whether steps may be missing follows the C2PA version the file was made under: before 2.5, files didn’t have to say their history was complete, so not saying it doesn’t count against them.'],
 ];
 
 export function HowItWorks({open,onClose}){

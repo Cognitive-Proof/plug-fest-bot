@@ -11,6 +11,7 @@ mod classify;
 mod outcome;
 mod record;
 mod remote;
+mod spec;
 
 use std::{io::Cursor, net::SocketAddr, path::Path, sync::Arc};
 
@@ -96,7 +97,10 @@ async fn read_upload(ctx: Arc<Context>, format: String, bytes: axum::body::Bytes
 
 /// Classifies one file and builds the response body.
 fn eat(name: &str, size: usize, views: Option<&Views>) -> Value {
-    let (verdict, reason) = classify::classify(views.map(|(j, d, _)| Store { json: j, detailed: d }));
+    let (verdict, reason) = match views {
+        Some((j, d, _)) => spec::classify(j, d),
+        None => classify::classify(None),
+    };
     let outcome = match views {
         Some((j, d, _)) => outcome::outcome(j, d),
         None => json!({ "state": false, "manifests": [], "error": "no readable C2PA manifest" }),
@@ -241,7 +245,9 @@ mod tests {
         }
     }
 
-    /// Every labelled file in c2pa-ai-examples gets its expected verdict through `eat`.
+    /// Every labelled file in c2pa-ai-examples gets its expected verdict from the reference
+    /// classifier, read the way the bot reads it. (`eat` then reads omitted
+    /// `allActionsIncluded` by spec version, see `spec`.)
     #[test]
     fn matches_reference_labels() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../c2pa-ai-examples");
@@ -253,7 +259,7 @@ mod tests {
             let bytes = std::fs::read(root.join(file)).unwrap();
             // Without fetching: u06's remote manifest was never published, so it's unknown either way.
             let read = views(&ctx, &format_hint(None, file), &bytes, None).ok();
-            let got = &eat(file, bytes.len(), read.as_ref())["verdict"];
+            let got = &json!(classify::classify(read.as_ref().map(|(j, d, _)| Store { json: j, detailed: d })).0.dir());
             let got = match (&l["knownSdkIssue"]["code"], read.clone()) {
                 (Value::String(code), Some((mut j, d, _))) => {
                     assert_eq!(got, &l["knownSdkIssue"]["sdkVerdict"], "{file}: SDK verdict");
