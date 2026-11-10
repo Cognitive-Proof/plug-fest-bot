@@ -7,7 +7,7 @@ description = "Nom's stomach: reads an uploaded file's C2PA manifest and says wh
 
 [dependencies]
 # Same local c2pa-rs checkout c2pa-ai-examples builds against, so verdicts match its labels.json.
-c2pa = { path = "../../c2pa-rs/sdk" }
+c2pa = { path = "../../c2pa-rs/sdk", features = ["pdf"] }
 anyhow = "1"
 axum = { version = "0.8", features = ["multipart"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
