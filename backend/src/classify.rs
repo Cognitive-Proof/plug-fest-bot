@@ -1,5 +1,4 @@
-//! Copied unchanged (below this header) from c2pa-ai-examples/src/classify.rs at commit ae87c72.
-//! The bot reads omitted `allActionsIncluded` by spec version before calling it (see `spec`).
+//! Copied unchanged (below this header) from c2pa-ai-examples/src/classify.rs at commit aa22fe6.
 //! Keep it in sync with that file rather than editing it here.
 //!
 //! Reference classifier: reads a C2PA manifest store (as `Reader::json()` output, plus
@@ -306,6 +305,25 @@ fn ingredient(
     }
 }
 
+/// The spec version from which `allActionsIncluded` is required. It was optional in 2.2 and
+/// recommended in 2.3 and 2.4.
+const ALL_ACTIONS_REQUIRED_FROM: (u32, u32) = (2, 5);
+
+/// The spec version a manifest's claim declares: `specVersion` in `claim_generator_info` (2.4
+/// and later) or on the claim itself (2.3).
+fn declared_spec(store: Store, label: &str) -> Option<String> {
+    let claim = &store.detailed["manifests"][label]["claim"];
+    let info = &claim["claim_generator_info"];
+    let info = if info.is_array() { &info[0] } else { info };
+    info["specVersion"].as_str().or(claim["specVersion"].as_str()).map(str::to_string)
+}
+
+/// `"2.4.0"` → `(2, 4)`.
+fn major_minor(version: &str) -> Option<(u32, u32)> {
+    let mut parts = version.split('.').map(|p| p.parse().ok());
+    Some((parts.next()??, parts.next()??))
+}
+
 fn manifest(store: Store, label: &str, deleted: &HashSet<(String, String)>) -> (Verdict, String) {
     let m = &store.json["manifests"][label];
     let ingredients: Vec<&Value> = m["ingredients"].as_array().into_iter().flatten().collect();
@@ -330,9 +348,24 @@ fn manifest(store: Store, label: &str, deleted: &HashSet<(String, String)>) -> (
 
     let assertions = actions_assertions(m);
     let actions: Vec<Value> = assertions.iter().flat_map(|(_, d)| merged_actions(d)).collect();
-    // Only a v2 assertion saying allActionsIncluded: true rules out unrecorded actions.
+    // Only v2 assertions rule out unrecorded actions: with allActionsIncluded: true, or with
+    // it omitted under a spec version where it was optional.
+    // `Reader::json()` reports v1 `c2pa.actions` as v2, so the detailed store tells them apart.
+    // A v1 assertion has no allActionsIncluded to omit.
+    let v1 = store.detailed["manifests"][label]["assertion_store"]
+        .as_object()
+        .is_some_and(|a| a.keys().any(|k| k == "c2pa.actions" || k.starts_with("c2pa.actions__")));
+    let spec = declared_spec(store, label);
+    let required = spec.as_deref().and_then(major_minor).is_some_and(|v| v >= ALL_ACTIONS_REQUIRED_FROM);
+    let omitted = !v1 && assertions.iter().any(|(l, d)| *l == "c2pa.actions.v2" && d.get("allActionsIncluded").is_none());
     let complete = !assertions.is_empty()
-        && assertions.iter().all(|(l, d)| *l == "c2pa.actions.v2" && d["allActionsIncluded"] == true);
+        && assertions.iter().all(|(l, d)| {
+            *l == "c2pa.actions.v2"
+                && match d.get("allActionsIncluded") {
+                    Some(v) => *v == true,
+                    None => !v1 && !required,
+                }
+        });
 
     // Components removed by c2pa.deleted, here or in a later manifest, are not current content.
     let mut deleted = deleted.clone();
@@ -404,6 +437,13 @@ fn manifest(store: Store, label: &str, deleted: &HashSet<(String, String)>) -> (
                 };
                 notes.push(format!("opened parent: {why}"));
                 origin = Some(v);
+            }
+            // An AI eraser deletes part of the content and fills the gap with a generative
+            // model, so the fill is AI content.
+            ("c2pa.deleted", Some(uri)) if matches!(source_of(uri), Source::Ai | Source::IncludesAi) => {
+                notes.push(format!("c2pa.deleted as {} (the removed area was filled by a generative model)", short(uri)));
+                ai_use_declared = true;
+                ai_signal = true;
             }
             ("c2pa.deleted", _) if a["parameters"]["ingredients"].is_array() => {
                 notes.push("c2pa.deleted removes a whole component".into())
@@ -505,6 +545,12 @@ fn manifest(store: Store, label: &str, deleted: &HashSet<(String, String)>) -> (
             Verdict::Unknown => unclear = true,
             Verdict::NoAi => {}
         }
+    }
+    let spec = spec.as_deref().unwrap_or("no spec version");
+    if omitted && required {
+        notes.push(format!("allActionsIncluded omitted though spec {spec} requires it"));
+    } else if omitted && complete {
+        notes.push(format!("allActionsIncluded omitted where it was optional (before spec 2.5; declares {spec})"));
     }
     if !complete {
         notes.push("history may be incomplete (allActionsIncluded not true)".into());
@@ -652,11 +698,59 @@ mod tests {
         assert_eq!(single(actions), Verdict::Unknown);
     }
 
+    /// A one-manifest store whose claim declares `spec` in `claim_generator_info`.
+    fn single_with_spec(actions: Value, spec: &str) -> (Verdict, String) {
+        let json = json!({
+            "active_manifest": "m",
+            "manifests": { "m": { "assertions": [{ "label": "c2pa.actions.v2", "data": actions }] } },
+        });
+        let detailed = json!({ "manifests": { "m": {
+            "claim": { "claim_generator_info": { "name": "test", "specVersion": spec } },
+            "assertion_store": { "c2pa.actions.v2": actions, "c2pa.hash.data": {} },
+        } } });
+        classify(Some(Store { json: &json, detailed: &detailed }))
+    }
+
     #[test]
-    fn omitted_all_actions_included_means_possibly_incomplete() {
-        // Older v2 assertions could omit the field; consumers read that as "maybe incomplete".
-        let actions = json!({ "actions": [{ "action": "c2pa.created", "digitalSourceType": CAPTURE }] });
-        assert_eq!(single(actions), Verdict::Unknown);
+    fn omitted_all_actions_included_follows_the_declared_spec_version() {
+        // Optional in 2.2, recommended in 2.3 and 2.4: omitting it there says nothing about
+        // unrecorded actions. Required from 2.5, so omitting it leaves the history open.
+        let capture = json!({ "actions": [{ "action": "c2pa.created", "digitalSourceType": CAPTURE }] });
+        assert_eq!(single(capture.clone()), Verdict::NoAi);
+        for spec in ["2.2.0", "2.4.0"] {
+            assert_eq!(single_with_spec(capture.clone(), spec).0, Verdict::NoAi, "{spec}");
+        }
+        let (v, why) = single_with_spec(capture, "2.5.0");
+        assert_eq!(v, Verdict::Unknown);
+        assert!(why.contains("spec 2.5.0 requires it"), "{why}");
+    }
+
+    #[test]
+    fn explicit_false_is_possibly_incomplete_in_any_version() {
+        let actions = json!({
+            "actions": [{ "action": "c2pa.created", "digitalSourceType": CAPTURE }],
+            "allActionsIncluded": false,
+        });
+        assert_eq!(single(actions.clone()), Verdict::Unknown);
+        assert_eq!(single_with_spec(actions, "2.4.0").0, Verdict::Unknown);
+    }
+
+    #[test]
+    fn ai_filled_deletion_counts_as_ai() {
+        // An AI eraser: part of a capture removed and the gap filled by a generative model.
+        let erase = |source: Value| {
+            let mut deleted = json!({ "action": "c2pa.deleted" });
+            if !source.is_null() {
+                deleted["digitalSourceType"] = source;
+            }
+            single(json!({
+                "actions": [{ "action": "c2pa.created", "digitalSourceType": CAPTURE }, deleted],
+                "allActionsIncluded": true,
+            }))
+        };
+        assert_eq!(erase(json!(FILL)), Verdict::IncludesAi);
+        assert_eq!(erase(json!(HUMAN_EDITS)), Verdict::NoAi);
+        assert_eq!(erase(Value::Null), Verdict::NoAi);
     }
 
     #[test]
