@@ -30,9 +30,13 @@ use tower_http::{cors::CorsLayer, services::ServeDir};
 
 const MAX_UPLOAD: usize = 100 * 1024 * 1024;
 
-/// Reader settings: the c2pa-ai-examples test trust anchors, and no network access of its own.
+/// Reader settings: the c2pa-ai-examples test trust anchors plus the official C2PA signer and
+/// time-stamping trust lists (or the file `C2PA_SETTINGS` names), and no network access of its own.
 fn settings() -> Result<Settings> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("settings/c2pa-test-settings.json");
+    let path = match std::env::var_os("C2PA_SETTINGS") {
+        Some(p) => p.into(),
+        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("settings/c2pa-test-settings.json"),
+    };
     let mut s: Value = serde_json::from_str(&std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?)?;
     // c2pa-rs would fetch any URL a file names. Instead it reports the URL, and `remote::fetch`
     // gets it with limits.

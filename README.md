@@ -87,4 +87,6 @@ above. When a file only links to its manifest (a remote manifest, e.g. Adobe's c
 Credentials), the server fetches it once with limits: HTTPS only, public addresses only (the
 connection is pinned to the checked address), no redirects, 5 MB and 10 seconds at most
 (`backend/src/remote.rs`). The URL is recorded as `remoteManifest`. Trust uses the c2pa-ai-examples test trust
-anchors (`backend/settings/`).
+anchors plus the official C2PA signer and time-stamping trust lists from
+[c2pa-org/conformance-public](https://github.com/c2pa-org/conformance-public/tree/main/trust-list)
+(`backend/settings/`); set `C2PA_SETTINGS` to use another settings file.
