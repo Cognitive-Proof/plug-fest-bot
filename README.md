@@ -43,6 +43,25 @@ cargo test --release --manifest-path backend/Cargo.toml
 
 This checks every file in `../c2pa-ai-examples/labels.json` gets its expected verdict.
 
+## C2PA signals
+
+"Tell me more" also shows the C2PA Conformance Task Force's signals rubric for each signed step
+(`src/signals/`). `/api/eat` returns the manifest store as crJSON (`crjson`), and the browser
+evaluates the rubric with `src/signals/evaluator.js`, a JavaScript port of the signals part of the
+Task Force's Python evaluator (`asset-rubrics/c2pa_signals_rubric_evaluator.py`), using
+`@adobe/json-formula`.
+
+The rubric is copied from a conformance checkout into `src/signals/asset-rubric-signals-local.json`,
+which records the commit it came from:
+
+```sh
+npm run sync:signals -- ../conformance     # copy the rubric at that checkout's commit
+npm run check:signals                       # JS output must equal the Python goldens
+```
+
+`check:signals` compares the port with every `*.signals.json` next to a crJSON file in the given
+directories (default `../conformance/asset-rubrics/test`).
+
 ## Uploads and feedback
 
 When `UPLOAD_BUCKET` and `GOOGLE_CLOUD_PROJECT` are set (Cloud Run sets them in `cloudbuild.yaml`),

@@ -44,11 +44,12 @@ fn context() -> Result<Arc<Context>> {
     Ok(Context::new().with_settings(settings()?)?.into_shared())
 }
 
-type Views = (Value, Value);
+/// `Reader::json()` and `Reader::detailed_json()` for the classifier, and crJSON for the signals
+/// rubric the frontend evaluates.
+type Views = (Value, Value, Value);
 
-/// The `Reader::json()` and `Reader::detailed_json()` views of `bytes`, read from the manifest
-/// embedded in it, or from `manifest` (a fetched remote manifest) validated against it.
-/// `format` is a hint; c2pa-rs detects the format from the bytes.
+/// The views of `bytes`, read from the manifest embedded in it, or from `manifest` (a fetched
+/// remote manifest) validated against it. `format` is a hint; c2pa-rs detects the format from the bytes.
 fn views(ctx: &Arc<Context>, format: &str, bytes: &[u8], manifest: Option<&[u8]>) -> c2pa::Result<Views> {
     let reader = Reader::from_shared_context(ctx);
     let r = match manifest {
@@ -56,7 +57,7 @@ fn views(ctx: &Arc<Context>, format: &str, bytes: &[u8], manifest: Option<&[u8]>
         None => reader.with_stream(format, Cursor::new(bytes))?,
     };
     let parse = |s: String| serde_json::from_str(&s).map_err(c2pa::Error::JsonError);
-    Ok((parse(r.json())?, parse(r.detailed_json())?))
+    Ok((parse(r.json())?, parse(r.detailed_json())?, r.to_crjson_value()?))
 }
 
 /// What reading an upload found: its views, the remote manifest URL if it had one, and why it
@@ -91,9 +92,9 @@ async fn read_upload(ctx: Arc<Context>, format: String, bytes: axum::body::Bytes
 
 /// Classifies one file and builds the response body.
 fn eat(name: &str, size: usize, views: Option<&Views>) -> Value {
-    let (verdict, reason) = classify::classify(views.map(|(j, d)| Store { json: j, detailed: d }));
+    let (verdict, reason) = classify::classify(views.map(|(j, d, _)| Store { json: j, detailed: d }));
     let outcome = match views {
-        Some((j, d)) => outcome::outcome(j, d),
+        Some((j, d, _)) => outcome::outcome(j, d),
         None => json!({ "state": false, "manifests": [], "error": "no readable C2PA manifest" }),
     };
     json!({
@@ -102,6 +103,7 @@ fn eat(name: &str, size: usize, views: Option<&Views>) -> Value {
         "fileName": name,
         "size": size,
         "outcome": outcome,
+        "crjson": views.map(|(_, _, c)| c),
     })
 }
 
@@ -249,7 +251,7 @@ mod tests {
             let read = views(&ctx, &format_hint(None, file), &bytes, None).ok();
             let got = &eat(file, bytes.len(), read.as_ref())["verdict"];
             let got = match (&l["knownSdkIssue"]["code"], read.clone()) {
-                (Value::String(code), Some((mut j, d))) => {
+                (Value::String(code), Some((mut j, d, _))) => {
                     assert_eq!(got, &l["knownSdkIssue"]["sdkVerdict"], "{file}: SDK verdict");
                     drop_status(&mut j, code);
                     json!(classify::classify(Some(Store { json: &j, detailed: &d })).0.dir())
