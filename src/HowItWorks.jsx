@@ -11,7 +11,7 @@ const STEPS=[
 ];
 
 export function HowItWorks({open,recording,onClose}){
- const ref=useRef(null);
+ const ref=useRef(null),origin=window.location.origin;
  useEffect(()=>{const d=ref.current;if(!d)return;if(open&&!d.open)d.showModal();if(!open&&d.open)d.close();},[open]);
  return <dialog ref={ref} className="how-dialog" aria-labelledby="how-title" onClose={onClose} onClick={e=>{if(e.target===ref.current)onClose();}}>
  <div className="how-inner">
@@ -20,6 +20,14 @@ export function HowItWorks({open,recording,onClose}){
  <figure className="flow"><a href="how-it-works.svg" target="_blank" rel="noopener"><img src="how-it-works.svg" width="1491" height="1872" loading="lazy" alt="Flowchart of how Plug-Fest Bot decides a file’s verdict, following the steps below."/></a><figcaption><a href="how-it-works.svg" target="_blank" rel="noopener">Open full size ↗</a></figcaption></figure>
  <ol className="steps">{STEPS.map(([title,body])=><li key={title}><strong>{title}</strong><span>{body}</span></li>)}</ol>
  <p className="how-note"><strong>Good to know:</strong> the verdict describes what the file’s signed provenance <em>declares</em>. Plug-Fest Bot doesn’t analyse the pixels, so a file with no credentials, or credentials that leave things out, can’t be judged.</p>
+ <section className="how-api" aria-labelledby="how-api-title">
+ <h3 id="how-api-title">Use it from an AI assistant or your code</h3>
+ <p><strong>MCP server.</strong> Add Plug-Fest Bot to an assistant that supports MCP (Claude, Cursor and others) as a remote server at <code>{origin}/mcp</code>. It can then check files for you with two tools: <code>classify_url</code> takes a file’s web address, and <code>classify_file</code> takes a small file (up to 20 MB) sent inline. In Claude Code:</p>
+ <pre><code>claude mcp add --transport http plug-fest-bot {origin}/mcp</code></pre>
+ <p><strong>API.</strong> Send a file, or a link to one (up to 100 MB):</p>
+ <pre><code>{`curl -F file=@photo.jpg ${origin}/api/v1/classify\n\ncurl -H 'Content-Type: application/json' \\\n  -d '{"url":"https://example.com/photo.jpg"}' \\\n  ${origin}/api/v1/classify-url`}</code></pre>
+ <p>Both answer with the verdict, the reason and who signed the file; add <code>?detail=true</code> for the full manifest. Files sent this way are never kept. Each address can make 60 requests a minute.</p>
+ </section>
  </div>
  </dialog>;
 }
