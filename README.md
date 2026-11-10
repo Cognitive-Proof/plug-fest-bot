@@ -14,7 +14,9 @@ policy is documented in the c2pa-ai-examples README.
 
 ## Requirements
 
-- `../c2pa-rs` and `../c2pa-ai-examples` checked out next to this repository.
+- `../c2pa-rs` and `../c2pa-ai-examples` checked out next to this repository. The deployed bot
+  builds the c2pa-rs commit pinned in the `Dockerfile` (`C2PA_RS_REV`); check that commit out to
+  get the same verdicts locally.
 - Rust 1.96 (pinned in `backend/rust-toolchain.toml`; rustup fetches it).
 - Node.js 22 or later.
 

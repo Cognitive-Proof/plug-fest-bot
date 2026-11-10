@@ -5,8 +5,8 @@
 # The binary finds dist/ and settings/ through its compile-time CARGO_MANIFEST_DIR,
 # so the runtime image keeps those paths too.
 
-ARG C2PA_RS_REPO=https://github.com/mrappard/c2pa-rs-text-support.git
-ARG C2PA_RS_REV=f5ec249bdd30f3daade2c977e3008374d0b09337
+ARG C2PA_RS_REPO=https://github.com/contentauth/c2pa-rs.git
+ARG C2PA_RS_REV=4973da77d5e0e85c277f2ff2648ae2a72c6312b6
 
 FROM node:22-bookworm-slim AS web
 WORKDIR /src/plug-fest-bot
