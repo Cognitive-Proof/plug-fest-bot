@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- Source of public/og-image.png, the 1200×630 link-preview image (Slack, social sites).
+     Re-render with: npm run og-image -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Manrope:wght@700;800&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: radial-gradient(circle at 25% 55%, #eef4e0 0, #f6f5ef 55%);
+    color: #263e34; font-family: 'DM Sans', sans-serif;
+    display: flex; align-items: center; gap: 24px; padding: 0 72px 0 40px;
+  }
+  .stage { position: relative; width: 460px; height: 460px; flex: none; display: grid; place-items: center; }
+  .orbit { position: absolute; border-radius: 50%; border: 2px dashed #d6e2c2; }
+  .orbit.one { inset: 18px; }
+  .orbit.two { inset: 70px; border-style: solid; border-color: #e6eddb; }
+  .robot { position: relative; width: 430px; }
+  .copy { display: flex; flex-direction: column; gap: 22px; }
+  .eyebrow { font-size: 18px; letter-spacing: 3px; font-weight: 600; color: #7f9a62; text-transform: uppercase; }
+  h1 { font-family: Manrope, sans-serif; font-weight: 800; font-size: 92px; line-height: .95; letter-spacing: -3.5px; margin: 0; }
+  p { font-size: 31px; line-height: 1.35; color: #5f6b55; margin: 0; max-width: 560px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .chip { font-size: 19px; font-weight: 600; border-radius: 99px; padding: 8px 16px; white-space: nowrap; }
+  .ai { background: #ece9f8; color: #4f4290; }
+  .includes { background: #fbf0d9; color: #86610f; }
+  .no { background: #e6f2da; color: #3d652a; }
+  .unknown { background: #efefea; color: #63675c; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="orbit one"></div><div class="orbit two"></div>
+    <!-- The robot from src/Robot.jsx -->
+    <svg class="robot" viewBox="0 0 440 360" role="img" aria-label="Plug-Fest Bot">
+      <ellipse cx="220" cy="337" rx="111" ry="10" fill="#233d33" opacity=".08"/>
+      <path d="M220 66V43" stroke="#2f4a40" stroke-width="8" stroke-linecap="round"/><circle cx="220" cy="32" r="12" fill="#b6dc7e"/><circle cx="216" cy="28" r="3" fill="#eaf7ce"/>
+      <path d="M105 215C70 222 57 204 51 183" fill="none" stroke="#779a64" stroke-width="17" stroke-linecap="round"/><path d="M39 163l10 20 13-18" fill="none" stroke="#9dbe7e" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M335 215c31 6 46-5 53-27" fill="none" stroke="#779a64" stroke-width="17" stroke-linecap="round"/><path d="M378 168l9 20 15-17" fill="none" stroke="#9dbe7e" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="141" y="292" width="46" height="39" rx="16" fill="#779a64"/><rect x="253" y="292" width="46" height="39" rx="16" fill="#779a64"/>
+      <rect x="87" y="145" width="29" height="68" rx="14" fill="#779a64"/><rect x="324" y="145" width="29" height="68" rx="14" fill="#779a64"/>
+      <rect x="103" y="69" width="234" height="244" rx="72" fill="#9ebc7e"/>
+      <rect x="103" y="64" width="234" height="239" rx="72" fill="#c4e69a"/>
+      <path d="M132 115c9-17 21-24 38-27" stroke="#e6f6ca" stroke-width="8" stroke-linecap="round"/>
+      <ellipse cx="173" cy="151" rx="39" ry="43" fill="#fffef5"/><ellipse cx="267" cy="151" rx="39" ry="43" fill="#fffef5"/>
+      <ellipse cx="181" cy="158" rx="15" ry="19" fill="#273c35"/><ellipse cx="259" cy="158" rx="15" ry="19" fill="#273c35"/><circle cx="185" cy="152" r="5" fill="#fff"/><circle cx="263" cy="152" r="5" fill="#fff"/>
+      <ellipse cx="140" cy="204" rx="14" ry="8" fill="#e5a994" opacity=".8"/><ellipse cx="300" cy="204" rx="14" ry="8" fill="#e5a994" opacity=".8"/>
+      <path d="M163 214Q220 205 277 214V231c0 35-24 48-57 48s-57-13-57-48Z" fill="#273c35"/><path d="M193 215h24v14a5 5 0 0 1-5 5h-14a5 5 0 0 1-5-5Z" fill="#fffef5"/><ellipse cx="231" cy="273" rx="29" ry="15" fill="#edaa95"/>
+      <circle cx="219" cy="292" r="3" fill="#91b176"/>
+    </svg>
+  </div>
+  <div class="copy">
+    <div class="eyebrow">Content Credentials taster</div>
+    <h1>Plug-Fest Bot</h1>
+    <p>Feed him a file. He tastes its Content Credentials for AI.</p>
+    <div class="chips">
+      <span class="chip ai">✦ AI-generated</span>
+      <span class="chip includes">◐ Includes AI</span>
+      <span class="chip no">✓ No AI</span>
+      <span class="chip unknown">? Unknown</span>
+    </div>
+  </div>
+</body>
+</html>

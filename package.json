@@ -7,7 +7,8 @@
     "dev:api": "cargo run --manifest-path backend/Cargo.toml",
     "build": "vite build",
     "sync:signals": "node scripts/sync-signals-rubric.mjs",
-    "check:signals": "node scripts/check-signals-parity.mjs"
+    "check:signals": "node scripts/check-signals-parity.mjs",
+    "og-image": "node scripts/render-og-image.mjs"
   },
   "dependencies": {
     "@adobe/json-formula": "^2.1.0",
